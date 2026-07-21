@@ -122,9 +122,11 @@ def ask(question: str, score_threshold: float, max_rewrites: int, rerank_top_n: 
     )
 
     answer = generate_answer(question, reranked)
+    trace.answer = answer
     trace.log(
         "generate",
         act=f"Answered with {LLM_MODEL} using {len(reranked)} chunks and the original question",
+        observe=answer,
     )
 
     return AgentResult(answer=answer, source_chunks=reranked, trace=trace)

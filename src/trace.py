@@ -21,6 +21,7 @@ class TraceStep:
 class Trace:
     question: str
     steps: list[TraceStep] = field(default_factory=list)
+    answer: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     def log(self, label: str, act: str, reason: str = "", observe: str = "") -> None:

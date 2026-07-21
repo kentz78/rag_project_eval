@@ -161,6 +161,8 @@ elif view == "Trace":
         st.info("No queries yet — ask something in the Ask view first.")
     for trace in st.session_state.trace_history:
         with st.expander(f'{trace.timestamp} — "{trace.question}"', expanded=(trace is st.session_state.trace_history[0])):
+            st.markdown(f"**Answer:** {trace.answer}")
+            st.divider()
             for step in trace.steps:
                 st.markdown(f"**{step.label.upper()}**")
                 if step.reason:
