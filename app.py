@@ -195,7 +195,10 @@ elif view == "Evaluate":
         st.error("`GOOGLE_API_KEY` is not set in `.env` — the judge model can't run.")
 
     if st.button("Run evaluation", disabled=not GOOGLE_API_KEY):
-        with st.spinner("Running golden set through the agent, then scoring with Ragas (~40 LLM calls, budget ~90s)..."):
+        with st.spinner(
+            "Running golden set through the agent (paced to respect Cohere's trial rate limit), "
+            "then scoring with Ragas (~40 LLM calls) — budget a few minutes..."
+        ):
             rows, aggregate = run_golden_set(
                 score_threshold=st.session_state.score_threshold,
                 max_rewrites=st.session_state.max_rewrites,

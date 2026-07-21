@@ -58,14 +58,24 @@ def _rewrite_query(question: str, llm: ChatOllama) -> str:
     return chain.invoke({"question": question}).content.strip().strip('"')
 
 
-def _rerank(question: str, docs: list[Document], top_n: int) -> tuple[list[Document], bool]:
-    """Returns (chunks, reranker_used). Falls back to wide-search order if no API key."""
+def _rerank(question: str, docs: list[Document], top_n: int) -> tuple[list[Document], bool, str | None]:
+    """Returns (chunks, reranker_used, fallback_reason).
+
+    Falls back to the wide-search order (top_n of it) if there's no API key
+    or the reranker call fails for any reason — e.g. Cohere trial keys are
+    limited to 10 calls/minute, which a tight loop (like the Stage 3 golden
+    set) can trip. Reranking is an accuracy improvement, not something that
+    should take the whole query down when it's unavailable.
+    """
     if not docs:
-        return docs, False
+        return docs, False, None
     if not COHERE_API_KEY:
-        return docs[:top_n], False
-    reranker = CohereRerank(model=RERANK_MODEL, top_n=top_n, cohere_api_key=COHERE_API_KEY)
-    return list(reranker.compress_documents(documents=docs, query=question)), True
+        return docs[:top_n], False, "no COHERE_API_KEY set"
+    try:
+        reranker = CohereRerank(model=RERANK_MODEL, top_n=top_n, cohere_api_key=COHERE_API_KEY)
+        return list(reranker.compress_documents(documents=docs, query=question)), True, None
+    except Exception as exc:
+        return docs[:top_n], False, f"{type(exc).__name__}: {exc}"
 
 
 def ask(question: str, score_threshold: float, max_rewrites: int, rerank_top_n: int) -> AgentResult:
@@ -110,13 +120,13 @@ def ask(question: str, score_threshold: float, max_rewrites: int, rerank_top_n: 
             act=f"Stopped — hit max_rewrites={max_rewrites} bound.",
         )
 
-    reranked, reranker_used = _rerank(current_question, docs, top_n=rerank_top_n)
+    reranked, reranker_used, fallback_reason = _rerank(current_question, docs, top_n=rerank_top_n)
     trace.log(
         "rerank",
         act=(
             f"Cohere rerank ({RERANK_MODEL}): {len(docs)} candidates -> top {rerank_top_n}"
             if reranker_used
-            else f"Reranker unavailable (no COHERE_API_KEY) — took top {rerank_top_n} from wide search instead"
+            else f"Reranker unavailable ({fallback_reason}) — took top {rerank_top_n} from wide search instead"
         ),
         observe=f"{len(reranked)} chunks kept",
     )

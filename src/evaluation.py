@@ -6,6 +6,7 @@ metrics. Output a per-question breakdown plus aggregate averages.
 """
 
 import json
+import time
 from dataclasses import dataclass
 
 import src._ragas_compat  # noqa: F401 - must run before importing ragas (see module docstring)
@@ -16,10 +17,17 @@ from ragas import evaluate
 from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
 
 from src import agent
-from src.config import EMBEDDING_MODEL, GOLDEN_SET_PATH, GOOGLE_API_KEY, JUDGE_MODEL
+from src.config import COHERE_API_KEY, EMBEDDING_MODEL, GOLDEN_SET_PATH, GOOGLE_API_KEY, JUDGE_MODEL
 
 METRICS = [faithfulness, answer_relevancy, context_precision, context_recall]
 METRIC_NAMES = ["faithfulness", "answer_relevancy", "context_precision", "context_recall"]
+
+# Cohere trial keys are capped at 10 calls/minute. The golden set makes one
+# rerank call per question in a tight loop, which sits right at that
+# boundary — pace it out to stay comfortably under (agent.py also falls
+# back gracefully if a call gets rate-limited anyway, this just makes that
+# fallback less likely to trigger).
+RERANK_CALL_PACING_SECONDS = 6.5
 
 
 @dataclass
@@ -48,7 +56,9 @@ def run_golden_set(
     golden_set = load_golden_set()
 
     questions, answers, contexts, references = [], [], [], []
-    for item in golden_set:
+    for i, item in enumerate(golden_set):
+        if i > 0 and COHERE_API_KEY:
+            time.sleep(RERANK_CALL_PACING_SECONDS)
         result = agent.ask(
             item["question"],
             score_threshold=score_threshold,
