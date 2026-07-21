@@ -39,9 +39,18 @@ def format_context(chunks: list[Document]) -> str:
     )
 
 
-def ask(question: str, search_k: int) -> QueryResult:
-    chunks = get_vectorstore().similarity_search(question, k=search_k)
+def generate_answer(question: str, chunks: list[Document]) -> str:
+    """The chain downstream of retrieval: Prompt -> Ollama -> Answer.
+
+    This is the seam the PRD calls out — Stage 2's agent reuses this
+    unmodified; only how `chunks` gets built (the retriever) differs.
+    """
     llm = ChatOllama(model=LLM_MODEL, temperature=0)
     chain = PROMPT | llm | StrOutputParser()
-    answer = chain.invoke({"context": format_context(chunks), "question": question})
+    return chain.invoke({"context": format_context(chunks), "question": question})
+
+
+def ask(question: str, search_k: int) -> QueryResult:
+    chunks = get_vectorstore().similarity_search(question, k=search_k)
+    answer = generate_answer(question, chunks)
     return QueryResult(answer=answer, source_chunks=chunks)

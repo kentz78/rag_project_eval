@@ -6,3 +6,4 @@ chromadb>=0.5
 streamlit>=1.38
 pypdf>=4.3
 python-dotenv>=1.0
+langchain-cohere>=0.3

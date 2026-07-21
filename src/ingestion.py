@@ -35,6 +35,11 @@ def get_vectorstore() -> Chroma:
         collection_name=COLLECTION_NAME,
         embedding_function=get_embeddings(),
         persist_directory=str(CHROMA_DIR),
+        # Cosine space gives relevance scores that behave like the deck's
+        # weak/strong examples (~0.3 vs ~0.8); Chroma's default L2 space
+        # compresses everything below ~0.4, making the score_threshold
+        # (Stage 2) meaningless.
+        collection_metadata={"hnsw:space": "cosine"},
     )
 
 

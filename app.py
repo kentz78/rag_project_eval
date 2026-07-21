@@ -1,29 +1,46 @@
-"""Stage 1 — Classic RAG. Streamlit UI: Ingest, Ask, Settings."""
+"""Stage 2 — Agentic RAG. Streamlit UI: Ingest, Ask, Settings, Trace.
+
+Extends Stage 1: the Ask flow now runs the adaptive retrieval pipeline
+(score-gated query rewriting + Cohere reranking) instead of the fixed
+top-k chain, and every decision it makes is logged for the Trace view.
+"""
 
 import streamlit as st
 
-from src.config import DEFAULT_CONFIG, DOCUMENTS_DIR, EMBEDDING_MODEL, LLM_MODEL, UPLOADS_DIR
+from src.agent import ask as agentic_ask
+from src.config import (
+    COHERE_API_KEY,
+    DEFAULT_CONFIG,
+    DOCUMENTS_DIR,
+    EMBEDDING_MODEL,
+    LLM_MODEL,
+    RERANK_MODEL,
+    UPLOADS_DIR,
+    WIDE_RETRIEVAL_K,
+)
 from src.ingestion import collection_count, ingest_directory, ingest_document, reset_collection
-from src.query import ask
 
-st.set_page_config(page_title="RAG Workshop — Stage 1", layout="wide")
+st.set_page_config(page_title="RAG Workshop — Stage 2", layout="wide", initial_sidebar_state="expanded")
 
-if "chunk_size" not in st.session_state:
-    st.session_state.chunk_size = DEFAULT_CONFIG.chunk_size
-if "chunk_overlap" not in st.session_state:
-    st.session_state.chunk_overlap = DEFAULT_CONFIG.chunk_overlap
-if "search_k" not in st.session_state:
-    st.session_state.search_k = DEFAULT_CONFIG.search_k
+for key in ("chunk_size", "chunk_overlap", "search_k", "score_threshold", "max_rewrites", "rerank_top_n"):
+    if key not in st.session_state:
+        st.session_state[key] = getattr(DEFAULT_CONFIG, key)
+if "trace_history" not in st.session_state:
+    st.session_state.trace_history = []
 
-# Model transparency (PRD §6.2, R0.1) — visible on every view.
+# Model transparency (PRD §6.2, R0.1/R0.3) — visible on every view.
 st.sidebar.markdown("### Active models")
 st.sidebar.markdown(f"**LLM:** `{LLM_MODEL}` (Ollama)")
 st.sidebar.markdown(f"**Embeddings:** `{EMBEDDING_MODEL}` (Ollama)")
+if COHERE_API_KEY:
+    st.sidebar.markdown(f"**Reranker:** `{RERANK_MODEL}` (Cohere)")
+else:
+    st.sidebar.markdown("**Reranker:** not configured (`COHERE_API_KEY` missing — falling back to wide-search order)")
 st.sidebar.divider()
 
-view = st.sidebar.radio("View", ["Ingest", "Ask", "Settings"])
+view = st.sidebar.radio("View", ["Ingest", "Ask", "Settings", "Trace"])
 
-st.title("Stage 1 — Classic RAG")
+st.title("Stage 2 — Agentic RAG")
 
 if view == "Ingest":
     st.header("Ingest documents")
@@ -68,19 +85,31 @@ if view == "Ingest":
 
 elif view == "Ask":
     st.header("Ask a question")
+    st.caption(
+        "Runs the Stage 2 adaptive pipeline: wide retrieval → conditional rewrite → "
+        "rerank → answer. See the Trace view for exactly what fired."
+    )
     if collection_count() == 0:
         st.warning("No documents ingested yet — go to the Ingest view first.")
     question = st.text_input("Question")
     if st.button("Ask", disabled=not question):
-        with st.spinner("Retrieving and generating..."):
-            result = ask(question, search_k=st.session_state.search_k)
+        with st.spinner("Retrieving, adapting, and generating..."):
+            result = agentic_ask(
+                question,
+                score_threshold=st.session_state.score_threshold,
+                max_rewrites=st.session_state.max_rewrites,
+                rerank_top_n=st.session_state.rerank_top_n,
+            )
+        st.session_state.trace_history.insert(0, result.trace)
+
         st.markdown("### Answer")
         st.write(result.answer)
-        st.markdown(f"### Source chunks (top {st.session_state.search_k})")
+        st.markdown(f"### Source chunks (top {st.session_state.rerank_top_n}, reranked)")
         for i, chunk in enumerate(result.source_chunks, start=1):
             source = chunk.metadata.get("source", "unknown")
             with st.expander(f"[{i}] {source}"):
                 st.write(chunk.page_content)
+        st.info("Full decision timeline for this question is in the Trace view.")
 
 elif view == "Settings":
     st.header("Settings")
@@ -96,13 +125,47 @@ elif view == "Settings":
     if st.session_state.chunk_overlap >= st.session_state.chunk_size:
         st.error("chunk_overlap must be smaller than chunk_size.")
 
-    st.subheader("Retrieval (takes effect on next query)")
+    st.subheader("Retrieval (Stage 1, unused now that Ask runs the Stage 2 pipeline)")
     st.session_state.search_k = st.number_input(
         "search_k", min_value=1, max_value=20, step=1, value=st.session_state.search_k
+    )
+    st.caption("Kept for reference/future direct use of src.query.ask(); the live Ask view uses rerank_top_n instead.")
+
+    st.subheader("Adaptive retrieval (Stage 2, takes effect on next query)")
+    st.session_state.score_threshold = st.slider(
+        "score_threshold", min_value=0.0, max_value=1.0, step=0.05, value=st.session_state.score_threshold
+    )
+    st.caption(f"Wide candidate pool is fixed at top-{WIDE_RETRIEVAL_K} (not configurable, per the workshop design).")
+    st.session_state.max_rewrites = st.number_input(
+        "max_rewrites", min_value=0, max_value=5, step=1, value=st.session_state.max_rewrites
+    )
+    st.session_state.rerank_top_n = st.number_input(
+        "rerank_top_n", min_value=1, max_value=10, step=1, value=st.session_state.rerank_top_n
     )
 
     st.divider()
     st.subheader("Active models")
     st.write(f"**LLM:** `{LLM_MODEL}` via Ollama, temperature=0")
     st.write(f"**Embeddings:** `{EMBEDDING_MODEL}` via Ollama")
+    if COHERE_API_KEY:
+        st.write(f"**Reranker:** `{RERANK_MODEL}` via Cohere")
+    else:
+        st.write(f"**Reranker:** `{RERANK_MODEL}` via Cohere — **not active**, `COHERE_API_KEY` is not set in `.env`")
     st.caption("Model selection is config-driven, not editable here — see src/config.py.")
+
+elif view == "Trace":
+    st.header("Trace")
+    st.caption("Every decision the Stage 2 agent made, most recent question first.")
+
+    if not st.session_state.trace_history:
+        st.info("No queries yet — ask something in the Ask view first.")
+    for trace in st.session_state.trace_history:
+        with st.expander(f'{trace.timestamp} — "{trace.question}"', expanded=(trace is st.session_state.trace_history[0])):
+            for step in trace.steps:
+                st.markdown(f"**{step.label.upper()}**")
+                if step.reason:
+                    st.markdown(f"- Reason: {step.reason}")
+                st.markdown(f"- Act: {step.act}")
+                if step.observe:
+                    st.markdown(f"- Observe: {step.observe}")
+                st.markdown("")
