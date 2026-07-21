@@ -1,8 +1,7 @@
-"""Stage 2 — Agentic RAG. Streamlit UI: Ingest, Ask, Settings, Trace.
+"""Stage 3 — Measured agentic RAG. Streamlit UI: Ingest, Ask, Settings, Trace, Evaluate.
 
-Extends Stage 1: the Ask flow now runs the adaptive retrieval pipeline
-(score-gated query rewriting + Cohere reranking) instead of the fixed
-top-k chain, and every decision it makes is logged for the Trace view.
+Extends Stage 2: adds a golden-set evaluation harness (Ragas, LLM-as-judge)
+so changes to Stage 1/2 become measurable instead of vibes-based.
 """
 
 import streamlit as st
@@ -13,14 +12,17 @@ from src.config import (
     DEFAULT_CONFIG,
     DOCUMENTS_DIR,
     EMBEDDING_MODEL,
+    GOOGLE_API_KEY,
+    JUDGE_MODEL,
     LLM_MODEL,
     RERANK_MODEL,
     UPLOADS_DIR,
     WIDE_RETRIEVAL_K,
 )
+from src.evaluation import run_golden_set
 from src.ingestion import collection_count, ingest_directory, ingest_document, reset_collection
 
-st.set_page_config(page_title="RAG Workshop — Stage 2", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="RAG Workshop — Stage 3", layout="wide", initial_sidebar_state="expanded")
 
 for key in ("chunk_size", "chunk_overlap", "search_k", "score_threshold", "max_rewrites", "rerank_top_n"):
     if key not in st.session_state:
@@ -36,11 +38,15 @@ if COHERE_API_KEY:
     st.sidebar.markdown(f"**Reranker:** `{RERANK_MODEL}` (Cohere)")
 else:
     st.sidebar.markdown("**Reranker:** not configured (`COHERE_API_KEY` missing — falling back to wide-search order)")
+if GOOGLE_API_KEY:
+    st.sidebar.markdown(f"**Judge:** `{JUDGE_MODEL}` (Gemini)")
+else:
+    st.sidebar.markdown("**Judge:** not configured (`GOOGLE_API_KEY` missing — Evaluate view will error)")
 st.sidebar.divider()
 
-view = st.sidebar.radio("View", ["Ingest", "Ask", "Settings", "Trace"])
+view = st.sidebar.radio("View", ["Ingest", "Ask", "Settings", "Trace", "Evaluate"])
 
-st.title("Stage 2 — Agentic RAG")
+st.title("Stage 3 — Measured Agentic RAG")
 
 if view == "Ingest":
     st.header("Ingest documents")
@@ -151,6 +157,10 @@ elif view == "Settings":
         st.write(f"**Reranker:** `{RERANK_MODEL}` via Cohere")
     else:
         st.write(f"**Reranker:** `{RERANK_MODEL}` via Cohere — **not active**, `COHERE_API_KEY` is not set in `.env`")
+    if GOOGLE_API_KEY:
+        st.write(f"**Judge (Stage 3):** `{JUDGE_MODEL}` via Gemini")
+    else:
+        st.write(f"**Judge (Stage 3):** `{JUDGE_MODEL}` via Gemini — **not active**, `GOOGLE_API_KEY` is not set in `.env`")
     st.caption("Model selection is config-driven, not editable here — see src/config.py.")
 
 elif view == "Trace":
@@ -171,3 +181,56 @@ elif view == "Trace":
                 if step.observe:
                     st.markdown(f"- Observe: {step.observe}")
                 st.markdown("")
+
+elif view == "Evaluate":
+    st.header("Evaluate")
+    st.caption(
+        "Runs the 10-question golden set through the Stage 2 agent and scores every "
+        "answer with Ragas (LLM-as-judge). Uses whatever score_threshold/max_rewrites/"
+        "rerank_top_n are currently set in Settings."
+    )
+    if GOOGLE_API_KEY:
+        st.write(f"**Judge model:** `{JUDGE_MODEL}` via Gemini")
+    else:
+        st.error("`GOOGLE_API_KEY` is not set in `.env` — the judge model can't run.")
+
+    if st.button("Run evaluation", disabled=not GOOGLE_API_KEY):
+        with st.spinner("Running golden set through the agent, then scoring with Ragas (~40 LLM calls, budget ~90s)..."):
+            rows, aggregate = run_golden_set(
+                score_threshold=st.session_state.score_threshold,
+                max_rewrites=st.session_state.max_rewrites,
+                rerank_top_n=st.session_state.rerank_top_n,
+            )
+        st.session_state.eval_result = {"rows": rows, "aggregate": aggregate}
+
+    if "eval_result" in st.session_state:
+        rows = st.session_state.eval_result["rows"]
+        aggregate = st.session_state.eval_result["aggregate"]
+
+        st.subheader("Scorecard")
+        cols = st.columns(len(aggregate))
+        weakest_metric = min(aggregate, key=aggregate.get)
+        for col, (metric, score) in zip(cols, aggregate.items()):
+            label = metric.replace("_", " ")
+            col.metric(label, f"{score:.2f}", help="Weakest metric" if metric == weakest_metric else None)
+        st.info(
+            f"**Weakest metric: {weakest_metric.replace('_', ' ')}** ({aggregate[weakest_metric]:.2f}) — "
+            f"{'improve retrieval (recall/precision)' if 'context' in weakest_metric else 'improve generation (prompt/grounding)'} "
+            "is the next place to invest."
+        )
+
+        st.subheader("Per-question breakdown")
+        st.dataframe(
+            [
+                {
+                    "question": r.question,
+                    "answer": r.answer,
+                    "ground_truth": r.ground_truth,
+                    **{k: round(v, 2) for k, v in r.scores.items()},
+                }
+                for r in rows
+            ],
+            use_container_width=True,
+        )
+    else:
+        st.info("No evaluation run yet — click 'Run evaluation' above.")

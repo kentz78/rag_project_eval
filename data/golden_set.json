@@ -1,0 +1,42 @@
+[
+  {
+    "question": "How much annual leave do full-time employees get?",
+    "ground_truth": "Full-time employees get 18 days of paid annual leave per year, increasing by 1 day for each completed year of service up to a maximum of 24 days."
+  },
+  {
+    "question": "What is the meal per diem when traveling for business?",
+    "ground_truth": "SGD 80 per day, covering breakfast, lunch, and dinner combined, and it does not require itemised receipts."
+  },
+  {
+    "question": "How many days can I work from home each week?",
+    "ground_truth": "The default arrangement is hybrid: 3 days in the office (Tuesday, Wednesday, Thursday) and up to 2 days working remotely, subject to manager approval."
+  },
+  {
+    "question": "What is the notice period if I resign during my probation period?",
+    "ground_truth": "2 weeks' written notice."
+  },
+  {
+    "question": "Can I expense alcohol?",
+    "ground_truth": "Only as part of an approved client entertainment event, with attendee names and business purpose recorded on the claim."
+  },
+  {
+    "question": "baby leave",
+    "ground_truth": "Statutory maternity leave is 16 weeks and paternity leave is 2 weeks."
+  },
+  {
+    "question": "What happens to unused annual leave at the end of the year?",
+    "ground_truth": "Up to 5 days may be carried forward into the next year; anything beyond that is forfeited by 31 March of the following year, unless carry-forward was blocked by business needs."
+  },
+  {
+    "question": "Does the company match retirement contributions beyond CPF?",
+    "ground_truth": "No, the company only contributes to CPF as required by statute and does not offer additional retirement contribution matching."
+  },
+  {
+    "question": "Can I bring my dog to the office?",
+    "ground_truth": "The documents do not mention any policy on pets or bringing dogs to the office."
+  },
+  {
+    "question": "How much advance notice do I need to give before going on parental leave?",
+    "ground_truth": "At least 8 weeks before the expected leave start date."
+  }
+]

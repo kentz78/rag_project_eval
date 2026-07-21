@@ -22,6 +22,9 @@ COLLECTION_NAME = "rag_docs"
 LLM_MODEL = "llama3.2"
 EMBEDDING_MODEL = "nomic-embed-text"
 RERANK_MODEL = "rerank-v3.5"
+JUDGE_MODEL = "gemini-flash-lite-latest"
+
+GOLDEN_SET_PATH = PROJECT_ROOT / "data" / "golden_set.json"
 
 # Wide candidate pool searched before reranking (Stage 2). Fixed per the
 # workshop design, not user-configurable — only the final rerank_top_n is.
