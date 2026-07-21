@@ -1,0 +1,8 @@
+langchain>=0.3
+langchain-community>=0.3
+langchain-ollama>=0.2
+langchain-chroma>=0.2
+chromadb>=0.5
+streamlit>=1.38
+pypdf>=4.3
+python-dotenv>=1.0
