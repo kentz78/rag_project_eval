@@ -97,3 +97,34 @@ def run_golden_set(
     aggregate = {name: df[name].mean() for name in METRIC_NAMES}
 
     return rows, aggregate
+
+
+def evaluate_single(question: str, answer: str, contexts: list[str]) -> dict[str, float]:
+    """Score one live Ask-view answer with the same 4 Ragas metrics as the golden-set run.
+
+    There's no golden-set ground truth for an ad-hoc question, so the generated
+    answer itself stands in as the reference. That makes context_precision and
+    context_recall self-referential here (directional only) — faithfulness and
+    answer_relevancy are unaffected, since they don't use a reference at all.
+    The Evaluate view's golden-set run (real ground truth) remains the
+    trustworthy number for precision/recall.
+    """
+    if not GOOGLE_API_KEY:
+        raise RuntimeError("GOOGLE_API_KEY is not set in .env — required for the Ragas judge model.")
+
+    dataset = Dataset.from_dict(
+        {
+            "user_input": [question],
+            "response": [answer],
+            "retrieved_contexts": [contexts],
+            "reference": [answer],
+        }
+    )
+
+    judge = ChatGoogleGenerativeAI(model=JUDGE_MODEL, google_api_key=GOOGLE_API_KEY, temperature=0)
+    embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+
+    result = evaluate(dataset, metrics=METRICS, llm=judge, embeddings=embeddings, raise_exceptions=False)
+    df = result.to_pandas()
+
+    return {name: df[name].iloc[0] for name in METRIC_NAMES}

@@ -19,7 +19,7 @@ from src.config import (
     UPLOADS_DIR,
     WIDE_RETRIEVAL_K,
 )
-from src.evaluation import run_golden_set
+from src.evaluation import evaluate_single, run_golden_set
 from src.ingestion import collection_count, ingest_directory, ingest_document, reset_collection
 
 st.set_page_config(page_title="RAG Workshop — Stage 3", layout="wide", initial_sidebar_state="expanded")
@@ -93,7 +93,8 @@ elif view == "Ask":
     st.header("Ask a question")
     st.caption(
         "Runs the Stage 2 adaptive pipeline: wide retrieval → conditional rewrite → "
-        "rerank → answer. See the Trace view for exactly what fired."
+        "rerank → answer, then scores the answer live with Ragas (faithfulness, answer "
+        "relevance, context precision, context recall). See the Trace view for exactly what fired."
     )
     if collection_count() == 0:
         st.warning("No documents ingested yet — go to the Ingest view first.")
@@ -116,6 +117,30 @@ elif view == "Ask":
             with st.expander(f"[{i}] {source}"):
                 st.write(chunk.page_content)
         st.info("Full decision timeline for this question is in the Trace view.")
+
+        st.markdown("### Real-time eval (Ragas)")
+        if not GOOGLE_API_KEY:
+            st.caption("`GOOGLE_API_KEY` is not set in `.env` — skipping live scoring for this answer.")
+        else:
+            try:
+                with st.spinner(f"Scoring this answer with Ragas (judge: {JUDGE_MODEL})..."):
+                    scores = evaluate_single(
+                        question,
+                        result.answer,
+                        [c.page_content for c in result.source_chunks],
+                    )
+            except Exception as exc:
+                st.warning(f"Live scoring failed ({type(exc).__name__}: {exc}) — the answer above is unaffected.")
+            else:
+                cols = st.columns(len(scores))
+                for col, (metric, score) in zip(cols, scores.items()):
+                    col.metric(metric.replace("_", " "), f"{score:.2f}")
+                st.caption(
+                    "There's no golden-set ground truth for an ad-hoc question, so context precision/recall use "
+                    "the generated answer itself as a stand-in reference — treat those two as directional, not "
+                    "authoritative. Faithfulness and answer relevance don't need a reference and aren't affected. "
+                    "For trustworthy precision/recall, use the Evaluate view's golden-set run."
+                )
 
 elif view == "Settings":
     st.header("Settings")
